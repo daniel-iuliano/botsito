@@ -15,8 +15,26 @@ export function calculateEMA(prices: number[], period: number): number {
   return prices.reduce((acc, val) => val * k + acc * (1 - k), prices[0]);
 }
 
+export function calculateMACD(prices: number[]) {
+  const ema12 = calculateEMA(prices.slice(-12), 12);
+  const ema26 = calculateEMA(prices.slice(-26), 26);
+  const macdLine = ema12 - ema26;
+  // Simplified signal line for snapshot performance
+  const signalLine = macdLine * 0.9; 
+  return {
+    value: macdLine,
+    signal: signalLine,
+    histogram: macdLine - signalLine
+  };
+}
+
 export function calculateVolatility(prices: number[]): number {
-  const mean = prices.reduce((a, b) => a + b) / prices.length;
-  const variance = prices.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / prices.length;
-  return Math.sqrt(variance);
+  if (prices.length < 2) return 0;
+  const returns = [];
+  for (let i = 1; i < prices.length; i++) {
+    returns.push((prices[i] - prices[i-1]) / prices[i-1]);
+  }
+  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+  const variance = returns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / returns.length;
+  return Math.sqrt(variance) * 100;
 }

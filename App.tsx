@@ -12,7 +12,7 @@ import LogConsole from './components/LogConsole';
 import MarketScanner from './components/MarketScanner';
 import RiskWarningModal from './components/RiskWarningModal';
 import ConnectionPanel from './components/ConnectionPanel';
-import { api } from './src/services/api';
+import { api } from './services/api';
 
 const INITIAL_CONFIG: TradingConfig = {
   mode: TradingMode.SIMULATION,
@@ -40,8 +40,8 @@ const App: React.FC = () => {
     opportunities: [],
     trades: [],
     logs: [],
-    balance: 25000,
-    equity: [25000],
+    balance: 0,
+    equity: [0],
   });
 
   const addLog = useCallback((message: string, level: LogEntry['level'] = 'INFO') => {
@@ -51,18 +51,30 @@ const App: React.FC = () => {
     }));
   }, []);
 
-  // Check connection on mount
+  const refreshBalances = useCallback(async () => {
+    try {
+      const res = await api.request('/api/balances');
+      if (res.success) {
+        const usdt = res.balances.find((b: any) => b.asset === 'USDT')?.total || 0;
+        setState(prev => ({ ...prev, balance: usdt }));
+      }
+    } catch (e) {}
+  }, []);
+
   useEffect(() => {
     const checkConn = async () => {
       try {
         const res = await api.request('/api/connection-status');
         if (res.connected) {
           setState(prev => ({ ...prev, connection: ConnectionStatus.CONNECTED, accountName: res.username }));
+          refreshBalances();
         }
-      } catch (e) {}
+      } catch (e) {
+        api.clearToken();
+      }
     };
     checkConn();
-  }, []);
+  }, [refreshBalances]);
 
   const handleConnect = async (key: string, secret: string) => {
     setState(prev => ({ ...prev, connection: ConnectionStatus.CONNECTING }));
@@ -81,6 +93,7 @@ const App: React.FC = () => {
         accountName: res.username
       }));
       addLog(`Secure session established. Authenticated as ${res.username}.`, "INFO");
+      refreshBalances();
     } catch (error: any) {
       setState(prev => ({ ...prev, connection: ConnectionStatus.AUTH_FAILED }));
       addLog(`Access denied: ${error.message}`, "ERROR");
@@ -93,32 +106,36 @@ const App: React.FC = () => {
     const interval = setInterval(async () => {
       try {
         const snapshot = await api.request('/api/market-snapshot');
-        
-        setState(prev => {
-          // Logic to handle trade execution based on backend snapshot
-          // ... (Existing trade management logic adapted for API responses)
-          return {
-            ...prev,
-            opportunities: snapshot.opportunities,
-            equity: [...prev.equity, prev.balance].slice(-100)
-          };
-        });
+        setState(prev => ({
+          ...prev,
+          opportunities: snapshot.opportunities,
+          equity: [...prev.equity, prev.balance].slice(-100)
+        }));
       } catch (e: any) {
         addLog(`Engine update failed: ${e.message}`, "WARN");
       }
-    }, 5000); // Polling every 5s for Vercel efficiency
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [state.status, addLog]);
 
-  const toggleBot = () => {
+  const toggleBot = async () => {
     if (state.status === BotStatus.OFF) {
       if (state.connection !== ConnectionStatus.CONNECTED) return;
-      setState(prev => ({ ...prev, status: BotStatus.RUNNING }));
-      addLog("Nexus Engine Disengaged. Monitoring alpha signals...", "INFO");
+      try {
+        await api.request('/api/start-bot', { 
+          method: 'POST', 
+          body: JSON.stringify({ config: state.config }) 
+        });
+        setState(prev => ({ ...prev, status: BotStatus.RUNNING }));
+        addLog("Nexus Engine Engaged. Scanning markets for alpha...", "INFO");
+      } catch (e: any) {
+        addLog(`Failed to start engine: ${e.message}`, "ERROR");
+      }
     } else {
+      await api.request('/api/stop-bot');
       setState(prev => ({ ...prev, status: BotStatus.OFF }));
-      addLog("Halted. All manual positions preserved.", "INFO");
+      addLog("Halted. Engine disengaged.", "INFO");
     }
   };
 
@@ -129,7 +146,7 @@ const App: React.FC = () => {
           <div className="bg-yellow-500 p-2 rounded-xl"><Zap className="text-black w-6 h-6" /></div>
           <div className="hidden lg:block">
             <h1 className="font-black text-xl tracking-tighter">NEXUS<span className="text-yellow-500 italic">PRO</span></h1>
-            <span className="text-[10px] text-gray-500 font-black uppercase">Vercel Cloud Edition</span>
+            <span className="text-[10px] text-gray-500 font-black uppercase tracking-tight">Vercel Backend</span>
           </div>
         </div>
         <nav className="flex-1 p-3 space-y-2 mt-4">
@@ -177,21 +194,21 @@ const App: React.FC = () => {
             )}
           </div>
           <div className="flex items-center gap-6">
+            <button onClick={refreshBalances} className="text-xs text-gray-500 hover:text-white underline">Refresh</button>
             <div className="text-right">
-              <div className="text-[9px] text-gray-500 font-black uppercase">Net Equity</div>
+              <div className="text-[9px] text-gray-500 font-black uppercase">Available USDT</div>
               <div className="text-sm font-bold text-white mono">${state.balance.toLocaleString()}</div>
             </div>
           </div>
         </header>
 
         <div className="flex-1 overflow-y-auto">
-          {/* Fix: Check if connection is NOT connected to properly show ConnectionPanel for all intermediate/error states */}
           {state.connection !== ConnectionStatus.CONNECTED ? (
             <div className="h-full flex items-center justify-center p-6 animate-in fade-in duration-700">
               <ConnectionPanel 
                 onConnect={handleConnect} 
                 isConnecting={state.connection === ConnectionStatus.CONNECTING} 
-                error={state.connection === ConnectionStatus.AUTH_FAILED ? "Access denied. Authentication failed." : undefined}
+                error={state.connection === ConnectionStatus.AUTH_FAILED ? "Access denied. Verification failed." : undefined}
               />
             </div>
           ) : (
