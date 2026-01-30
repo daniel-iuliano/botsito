@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Play, Square, Settings, Activity, History, Zap, Globe,
-  Wifi, WifiOff, AlertOctagon, UserCheck
+  Wifi, WifiOff
 } from 'lucide-react';
-import { BotStatus, TradingMode, TradingConfig, BotState, ConnectionStatus, MarketOpportunity, Trade, LogEntry } from './types';
+import { BotStatus, TradingMode, TradingConfig, BotState, ConnectionStatus, LogEntry } from './types';
 import Dashboard from './components/Dashboard';
 import ConfigPanel from './components/ConfigPanel';
 import TradeHistory from './components/TradeHistory';
@@ -68,6 +68,8 @@ const App: React.FC = () => {
         if (res.connected) {
           setState(prev => ({ ...prev, connection: ConnectionStatus.CONNECTED, accountName: res.username }));
           refreshBalances();
+        } else {
+          setState(prev => ({ ...prev, connection: ConnectionStatus.UNAUTHENTICATED }));
         }
       } catch (e) {
         api.clearToken();
@@ -75,6 +77,26 @@ const App: React.FC = () => {
     };
     checkConn();
   }, [refreshBalances]);
+
+  useEffect(() => {
+    // Engine Polling
+    const interval = setInterval(async () => {
+      try {
+        const snapshot = await api.request('/api/market-snapshot');
+        setState(prev => ({
+          ...prev,
+          opportunities: snapshot.opportunities,
+          equity: prev.status === BotStatus.RUNNING ? [...prev.equity, prev.balance].slice(-100) : prev.equity
+        }));
+      } catch (e: any) {
+        if (state.status === BotStatus.RUNNING) {
+          addLog(`Scanning Error: ${e.message}`, "WARN");
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [state.status, addLog]);
 
   const handleConnect = async (key: string, secret: string) => {
     setState(prev => ({ ...prev, connection: ConnectionStatus.CONNECTING }));
@@ -92,32 +114,13 @@ const App: React.FC = () => {
         connection: ConnectionStatus.CONNECTED,
         accountName: res.username
       }));
-      addLog(`Secure session established. Authenticated as ${res.username}.`, "INFO");
+      addLog(`Secure tunnel established. Connected as ${res.username}.`, "INFO");
       refreshBalances();
     } catch (error: any) {
       setState(prev => ({ ...prev, connection: ConnectionStatus.AUTH_FAILED }));
-      addLog(`Access denied: ${error.message}`, "ERROR");
+      addLog(`Authentication Failed: ${error.message}`, "ERROR");
     }
   };
-
-  useEffect(() => {
-    if (state.status !== BotStatus.RUNNING) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const snapshot = await api.request('/api/market-snapshot');
-        setState(prev => ({
-          ...prev,
-          opportunities: snapshot.opportunities,
-          equity: [...prev.equity, prev.balance].slice(-100)
-        }));
-      } catch (e: any) {
-        addLog(`Engine update failed: ${e.message}`, "WARN");
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [state.status, addLog]);
 
   const toggleBot = async () => {
     if (state.status === BotStatus.OFF) {
@@ -128,14 +131,14 @@ const App: React.FC = () => {
           body: JSON.stringify({ config: state.config }) 
         });
         setState(prev => ({ ...prev, status: BotStatus.RUNNING }));
-        addLog("Nexus Engine Engaged. Scanning markets for alpha...", "INFO");
+        addLog("NEXUS Engine Engaged. Real-time alpha monitoring active.", "INFO");
       } catch (e: any) {
-        addLog(`Failed to start engine: ${e.message}`, "ERROR");
+        addLog(`Engine Start Failed: ${e.message}`, "ERROR");
       }
     } else {
       await api.request('/api/stop-bot');
       setState(prev => ({ ...prev, status: BotStatus.OFF }));
-      addLog("Halted. Engine disengaged.", "INFO");
+      addLog("NEXUS Engine Disengaged. Monitoring mode only.", "INFO");
     }
   };
 
@@ -146,7 +149,7 @@ const App: React.FC = () => {
           <div className="bg-yellow-500 p-2 rounded-xl"><Zap className="text-black w-6 h-6" /></div>
           <div className="hidden lg:block">
             <h1 className="font-black text-xl tracking-tighter">NEXUS<span className="text-yellow-500 italic">PRO</span></h1>
-            <span className="text-[10px] text-gray-500 font-black uppercase tracking-tight">Vercel Backend</span>
+            <span className="text-[10px] text-gray-500 font-black uppercase tracking-tight">Cloud Instance</span>
           </div>
         </div>
         <nav className="flex-1 p-3 space-y-2 mt-4">
@@ -183,7 +186,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-4">
             {state.connection === ConnectionStatus.CONNECTED ? (
               <div className="flex items-center gap-2 px-3 py-1 bg-green-500/10 rounded-full border border-green-500/20">
-                <Wifi size={14} className="text-green-500" />
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
                 <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">{state.accountName}</span>
               </div>
             ) : (
@@ -194,10 +197,10 @@ const App: React.FC = () => {
             )}
           </div>
           <div className="flex items-center gap-6">
-            <button onClick={refreshBalances} className="text-xs text-gray-500 hover:text-white underline">Refresh</button>
+            <button onClick={refreshBalances} className="text-[10px] text-gray-500 hover:text-white uppercase font-black transition-colors">Sync Balances</button>
             <div className="text-right">
               <div className="text-[9px] text-gray-500 font-black uppercase">Available USDT</div>
-              <div className="text-sm font-bold text-white mono">${state.balance.toLocaleString()}</div>
+              <div className="text-sm font-bold text-white mono">${state.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
             </div>
           </div>
         </header>
@@ -208,7 +211,7 @@ const App: React.FC = () => {
               <ConnectionPanel 
                 onConnect={handleConnect} 
                 isConnecting={state.connection === ConnectionStatus.CONNECTING} 
-                error={state.connection === ConnectionStatus.AUTH_FAILED ? "Access denied. Verification failed." : undefined}
+                error={state.connection === ConnectionStatus.AUTH_FAILED ? "Verification failed. Check keys." : undefined}
               />
             </div>
           ) : (

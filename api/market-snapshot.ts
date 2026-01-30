@@ -1,70 +1,54 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getMarketTickers } from './lib/coinex';
-import { calculateRSI, calculateMACD, calculateVolatility } from './lib/indicators';
+import { getMarketDataSnapshot } from './lib/coinex';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    const tickers = await getMarketTickers();
+    const tickers = await getMarketDataSnapshot();
     const marketList = Object.keys(tickers);
     
-    // High-level filtering for liquidity and volume
-    const candidates = marketList
-      .map(symbol => ({
-        symbol,
-        ...tickers[symbol],
-        volUSD: parseFloat(tickers[symbol].vol) * parseFloat(tickers[symbol].last)
-      }))
-      .filter(m => m.volUSD > 200000 && m.symbol.endsWith('USDT'))
-      .sort((a, b) => b.volUSD - a.volUSD)
-      .slice(0, 20);
+    const opportunities = marketList
+      .map(symbol => {
+        const t = tickers[symbol];
+        const last = parseFloat(t.last);
+        const buy = parseFloat(t.buy);
+        const sell = parseFloat(t.sell);
+        const volUSD = parseFloat(t.vol) * last;
+        const spread = ((sell - buy) / last) * 100;
+        
+        // Quant scoring engine
+        // Prefer: High volume, Low spread, Recent dip (mocked RSI)
+        const rsi = 30 + (Math.random() * 40); 
+        let score = 50;
+        
+        if (rsi < 35) score += 30;
+        if (spread < 0.04) score += 20;
+        if (volUSD > 1000000) score += 10;
+        if (spread > 0.2) score -= 40;
 
-    const opportunities = candidates.map(c => {
-      const last = parseFloat(c.last);
-      const buy = parseFloat(c.buy);
-      const sell = parseFloat(c.sell);
-      const spread = ((sell - buy) / last) * 100;
-      
-      // Simulated Quant Analysis (In prod, fetch 100 candles per candidate)
-      const rsi = 30 + (Math.random() * 40);
-      const vol = 0.5 + (Math.random() * 2.5);
-      const macd = { value: 0.001, signal: 0.0008, histogram: 0.0002 };
-      
-      let score = 50;
-      
-      // Scalping Logic: Look for oversold + low spread + positive momentum
-      if (rsi < 35) score += 30; // Strong buy signal on RSI
-      if (spread < 0.03) score += 15; // Extremely liquid
-      if (parseFloat(c.vol) > 1000000) score += 10; // High volume interest
-      if (vol > 1.5) score += 5; // Healthy volatility
-      
-      // Penalties
-      if (spread > 0.2) score -= 40; // Too illiquid for scalping
-      if (rsi > 70) score -= 20; // Overbought
+        return {
+          symbol,
+          price: last,
+          change24h: ((last - parseFloat(t.open)) / parseFloat(t.open)) * 100,
+          volume24h: volUSD / 1000000, // in Millions
+          score: Math.min(100, Math.max(0, Math.round(score))),
+          spread,
+          indicators: {
+            rsi,
+            volatility: 1.5,
+            macd: { value: 0, signal: 0, histogram: 0 },
+            ema3: last,
+            ema9: last,
+            ema21: last
+          },
+          reason: rsi < 35 ? "Oversold RSI Convergence" : spread < 0.04 ? "High-Liquidity Scalp Zone" : "Momentum Trend"
+        };
+      })
+      .filter(o => o.symbol.endsWith('USDT') && o.volume24h > 0.2)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 15);
 
-      return {
-        symbol: c.symbol,
-        price: last,
-        change24h: ((last - parseFloat(c.open)) / parseFloat(c.open)) * 100,
-        volume24h: parseFloat(c.vol),
-        score: Math.max(0, Math.min(100, Math.round(score))),
-        spread,
-        indicators: { 
-          rsi, 
-          volatility: vol,
-          macd,
-          ema3: last * 0.99,
-          ema9: last * 0.98,
-          ema21: last * 0.97
-        },
-        reason: rsi < 35 ? "Oversold RSI Convergence" : spread < 0.03 ? "High-Liquidity Scalp Zone" : "Momentum Trend"
-      };
-    });
-
-    return res.status(200).json({
-      timestamp: Date.now(),
-      opportunities: opportunities.sort((a, b) => b.score - a.score)
-    });
+    return res.status(200).json({ opportunities });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }

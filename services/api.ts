@@ -4,20 +4,19 @@ let sessionToken: string | null = null;
 export const api = {
   setToken: (token: string) => {
     sessionToken = token;
-    // Optional: Persist to sessionStorage for tab-level persistence
-    sessionStorage.setItem('nexus_token', token);
+    sessionStorage.setItem('nexus_token_v1', token);
   },
   
   getToken: () => {
     if (!sessionToken) {
-      sessionToken = sessionStorage.getItem('nexus_token');
+      sessionToken = sessionStorage.getItem('nexus_token_v1');
     }
     return sessionToken;
   },
 
   clearToken: () => {
     sessionToken = null;
-    sessionStorage.removeItem('nexus_token');
+    sessionStorage.removeItem('nexus_token_v1');
   },
 
   request: async (endpoint: string, options: RequestInit = {}) => {
@@ -32,7 +31,7 @@ export const api = {
     const data = await res.json();
     
     if (!res.ok) {
-      throw new Error(data.message || data.error || 'API Request Failed');
+      throw new Error(data.message || data.error || 'Gateway Timeout or API Error');
     }
     return data;
   }

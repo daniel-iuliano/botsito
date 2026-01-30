@@ -1,8 +1,31 @@
 
 import crypto from 'crypto';
 
-// In a real Vercel env, this comes from process.env.ENCRYPTION_SECRET
-const INTERNAL_SECRET = 'nexus-pro-v1-stateless-secret-key-32-chars';
+// This secret should be in Vercel Environment Variables in production
+const ENCRYPTION_KEY = Buffer.from('48656c6c6f576f726c644e6578757350726f3132333435363738393041424344', 'hex'); // 32 bytes
+const ALGORITHM = 'aes-256-gcm';
+
+export function encryptSession(data: any): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+  let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+}
+
+export function decryptSession(token: string): any {
+  try {
+    const [ivHex, authTagHex, encryptedHex] = token.split(':');
+    const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return JSON.parse(decrypted);
+  } catch (e) {
+    return null;
+  }
+}
 
 export function signCoinEx(params: Record<string, any>, secret: string) {
   const query = Object.keys(params)
@@ -15,30 +38,4 @@ export function signCoinEx(params: Record<string, any>, secret: string) {
     .update(query)
     .digest("hex")
     .toUpperCase();
-}
-
-/**
- * Encrypts API keys into a stateless token for the frontend to hold.
- * This satisfies the "No DB / No Session" requirement.
- */
-export function encryptSession(data: any): string {
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(INTERNAL_SECRET.padEnd(32).slice(0, 32)), iv);
-  let encrypted = cipher.update(JSON.stringify(data));
-  encrypted = Buffer.concat([encrypted, cipher.final()]);
-  return iv.toString('hex') + ':' + encrypted.toString('hex');
-}
-
-export function decryptSession(token: string): any {
-  try {
-    const [ivHex, encryptedHex] = token.split(':');
-    const iv = Buffer.from(ivHex, 'hex');
-    const encryptedText = Buffer.from(encryptedHex, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(INTERNAL_SECRET.padEnd(32).slice(0, 32)), iv);
-    let decrypted = decipher.update(encryptedText);
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
-    return JSON.parse(decrypted.toString());
-  } catch (e) {
-    return null;
-  }
 }
