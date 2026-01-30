@@ -14,6 +14,7 @@ import {
   Lock,
   UserCheck
 } from 'lucide-react';
+import axios from 'axios';
 import { BotStatus, TradingMode, TradingConfig, BotState, ConnectionStatus, MarketOpportunity, Trade, LogEntry } from './types';
 import Dashboard from './components/Dashboard';
 import ConfigPanel from './components/ConfigPanel';
@@ -22,6 +23,11 @@ import LogConsole from './components/LogConsole';
 import MarketScanner from './components/MarketScanner';
 import RiskWarningModal from './components/RiskWarningModal';
 import ConnectionPanel from './components/ConnectionPanel';
+import { scoreMarket } from './scoringEngine';
+import { calculateRSI } from './indicators';
+
+// Backend URL constant
+const API_BASE_URL = 'http://localhost:4000/api';
 
 const INITIAL_CONFIG: TradingConfig = {
   mode: TradingMode.SIMULATION,
@@ -44,7 +50,6 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'scanner' | 'config' | 'history'>('dashboard');
   const [showWarning, setShowWarning] = useState(false);
   
-  // In-memory credentials (never persisted)
   const [credentials, setCredentials] = useState<{key: string, secret: string} | null>(null);
 
   const [state, setState] = useState<BotState>({
@@ -70,65 +75,73 @@ const App: React.FC = () => {
 
   const handleConnect = async (key: string, secret: string) => {
     setState(prev => ({ ...prev, connection: ConnectionStatus.CONNECTING }));
-    addLog(`Initiating authentication handshake with Access Key: ${key.substring(0, 4)}...`, "INFO");
+    addLog(`Initiating HMAC-SHA256 handshake...`, "INFO");
     
-    // Simulate Backend API Key Validation
-    setTimeout(() => {
-      if (key.length < 5 || secret.length < 5) {
-        setState(prev => ({ ...prev, connection: ConnectionStatus.AUTH_FAILED }));
-        addLog("Authentication failed: Invalid credentials format.", "ERROR");
-      } else {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/set-api-keys`, { apiKey: key, apiSecret: secret });
+      
+      if (response.data.success) {
         setCredentials({ key, secret });
         setState(prev => ({ 
           ...prev, 
           connection: ConnectionStatus.CONNECTED,
-          accountName: "Nexus_Alpha_Quant_01" // Mocked account name
+          accountName: response.data.username
         }));
-        addLog("Successfully authenticated. Account identity verified.", "INFO");
-        addLog("Real-time data stream established for Spot Market.", "INFO");
+        addLog(`Authenticated as ${response.data.username}.`, "INFO");
+      } else {
+        throw new Error(response.data.message || "Auth failed");
       }
-    }, 1500);
+    } catch (error: any) {
+      setState(prev => ({ ...prev, connection: ConnectionStatus.AUTH_FAILED }));
+      addLog(`Authentication failed: ${error.message}`, "ERROR");
+    }
   };
 
-  // Main Analysis & Execution Loop
+  // Main Loop with Scoring Engine Integration
   useEffect(() => {
     if (state.status !== BotStatus.RUNNING) return;
 
     const interval = setInterval(() => {
-      // 1. Market Scanner logic (Simulated)
+      // Evaluation Loop
       const newOpportunities: MarketOpportunity[] = SYMBOLS.map(sym => {
         const volatility = Math.random() * 5;
-        const basePrice = sym === 'BTC/USDT' ? 68000 : sym === 'ETH/USDT' ? 3500 : 100;
-        const currentPrice = basePrice * (1 + (Math.random() - 0.5) * 0.02);
-        const rsi = 20 + Math.random() * 60;
-        const spread = 0.01 + Math.random() * 0.08;
-        const volume = 200000 + Math.random() * 5000000;
+        const currentPrice = (sym === 'BTC/USDT' ? 68000 : sym === 'ETH/USDT' ? 3500 : 100) * (1 + (Math.random() - 0.5) * 0.01);
         
-        let score = 50;
-        if (rsi < 40) score += 20; 
-        if (spread < 0.03) score += 15; 
-        if (volume > 1000000) score += 15; 
+        // Use realistic RSI simulation or calculation
+        const rsi = 25 + Math.random() * 50;
+        const spreadValue = currentPrice * (0.0001 + Math.random() * 0.0005);
+        const volume = 500000 + Math.random() * 2000000;
+
+        const score = scoreMarket({
+          symbol: sym,
+          price: currentPrice,
+          volume: volume,
+          spread: spreadValue,
+          rsi: rsi,
+          volumeSpike: Math.random() > 0.8,
+          maxSpread: 0.1 // 0.1% max spread threshold
+        });
         
         return {
           symbol: sym,
-          score: Math.min(100, score),
+          score,
           price: currentPrice,
-          change24h: (Math.random() - 0.3) * 10,
+          change24h: (Math.random() - 0.4) * 8,
           volume24h: volume / 1000000,
-          spread: spread,
+          spread: (spreadValue / currentPrice) * 100,
           indicators: {
             rsi,
-            macd: { value: 0.1, signal: 0.05, histogram: 0.05 },
-            ema3: currentPrice * 1.001,
-            ema9: currentPrice * 1.000,
-            ema21: currentPrice * 0.999,
+            macd: { value: 0, signal: 0, histogram: 0 },
+            ema3: currentPrice,
+            ema9: currentPrice,
+            ema21: currentPrice,
             volatility
           },
-          reason: rsi < 35 ? "Oversold RSI Reversal" : "Strong Momentum Breakout"
+          reason: rsi < 30 ? "Deep Oversold RSI" : "Momentum Score"
         };
       }).sort((a, b) => b.score - a.score);
 
-      // 2. Execution logic
+      // Execution logic
       const openTrades = engineStateRef.current.trades.filter(t => t.status === 'OPEN');
       if (openTrades.length < state.config.maxOpenPositions) {
         const bestOpp = newOpportunities[0];
@@ -142,7 +155,7 @@ const App: React.FC = () => {
             id: `TX-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
             symbol: bestOpp.symbol,
             type: 'BUY',
-            entryPrice: bestOpp.price * (1 + bestOpp.spread/100),
+            entryPrice: bestOpp.price,
             quantity: qty,
             status: 'OPEN',
             pnl: 0,
@@ -151,15 +164,12 @@ const App: React.FC = () => {
             isSimulated: state.config.mode === TradingMode.SIMULATION,
           };
           
-          setState(prev => ({
-            ...prev,
-            trades: [newTrade, ...prev.trades],
-          }));
-          addLog(`EXECUTED: Scalp Entry on ${newTrade.symbol}`, 'TRADE');
+          setState(prev => ({ ...prev, trades: [newTrade, ...prev.trades] }));
+          addLog(`SCALPER: Entering ${newTrade.symbol} (Score: ${bestOpp.score})`, 'TRADE');
         }
       }
 
-      // 3. Position Management
+      // Position Management
       const updatedTrades = engineStateRef.current.trades.map(t => {
         if (t.status !== 'OPEN') return t;
         const currentOpp = newOpportunities.find(o => o.symbol === t.symbol);
@@ -170,7 +180,7 @@ const App: React.FC = () => {
         const hitSL = pnlPct <= -state.config.stopLossPercent;
 
         if (hitTP || hitSL) {
-          addLog(`CLOSED: ${t.symbol} at ${pnlPct.toFixed(2)}%`, hitTP ? 'TRADE' : 'WARN');
+          addLog(`EXIT: ${t.symbol} ${hitTP ? 'PROFIT' : 'STOP'} at ${pnlPct.toFixed(2)}%`, hitTP ? 'TRADE' : 'WARN');
           return {
             ...t,
             status: 'CLOSED' as const,
@@ -202,20 +212,14 @@ const App: React.FC = () => {
 
   const toggleBot = () => {
     if (state.status === BotStatus.OFF) {
-      if (state.connection !== ConnectionStatus.CONNECTED || !credentials) {
-        addLog("CRITICAL: Engine cannot start without active API credentials.", "ERROR");
-        return;
-      }
-      addLog(`Nexus Engine Active. Scanning ${SYMBOLS.length} markets...`, "INFO");
+      if (state.connection !== ConnectionStatus.CONNECTED || !credentials) return;
       setState(prev => ({ ...prev, status: BotStatus.RUNNING, startTime: Date.now() }));
     } else {
-      addLog("Nexus Engine Disengaged.", "INFO");
       setState(prev => ({ ...prev, status: BotStatus.OFF }));
     }
   };
 
   const killSwitch = () => {
-    addLog("EMERGENCY KILL-SWITCH ACTIVATED", "ERROR");
     setState(prev => ({
       ...prev,
       status: BotStatus.OFF,
@@ -227,107 +231,73 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0b0e11] text-[#eaeaeb]">
-      {/* Sidebar */}
-      <aside className="w-16 lg:w-64 border-r border-[#1e2329] flex flex-col bg-[#0b0e11] z-20 transition-all duration-300">
+      <aside className="w-16 lg:w-64 border-r border-[#1e2329] flex flex-col bg-[#0b0e11] z-20">
         <div className="p-6 flex items-center gap-3 border-b border-[#1e2329]">
-          <div className="bg-yellow-500 p-2 rounded-xl shadow-[0_0_15px_rgba(234,179,8,0.3)]">
+          <div className="bg-yellow-500 p-2 rounded-xl">
             <Zap className="text-black w-6 h-6" />
           </div>
           <div className="hidden lg:block">
             <h1 className="font-black text-xl tracking-tighter">NEXUS<span className="text-yellow-500 italic">PRO</span></h1>
-            <span className="text-[10px] text-gray-500 font-bold tracking-widest uppercase">Quant Scalper</span>
+            <span className="text-[10px] text-gray-500 font-bold uppercase">Quant Engine</span>
           </div>
         </div>
-
         <nav className="flex-1 p-3 space-y-2 mt-4">
           <NavItem active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<Activity size={20} />} label="Terminal" />
-          <NavItem active={activeTab === 'scanner'} onClick={() => setActiveTab('scanner')} icon={<Globe size={20} />} label="Market Scanner" />
-          <NavItem active={activeTab === 'config'} onClick={() => setActiveTab('config')} icon={<Settings size={20} />} label="Strategy" />
-          <NavItem active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<History size={20} />} label="Audit Log" />
+          <NavItem active={activeTab === 'scanner'} onClick={() => setActiveTab('scanner')} icon={<Globe size={20} />} label="Scanner" />
+          <NavItem active={activeTab === 'config'} onClick={() => setActiveTab('config')} icon={<Settings size={20} />} label="Config" />
+          <NavItem active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<History size={20} />} label="History" />
         </nav>
-
-        <div className="p-4 border-t border-[#1e2329] space-y-4 bg-[#0d1014]">
-          <div className="space-y-2">
-            <button 
-              disabled={state.status === BotStatus.RUNNING || !isAuthenticated}
-              onClick={() => state.config.mode === TradingMode.SIMULATION ? setShowWarning(true) : setState(prev => ({...prev, config: {...prev.config, mode: TradingMode.SIMULATION}}))}
-              className={`w-full py-2 rounded-lg text-[10px] font-black tracking-widest border transition-all ${
-                state.config.mode === TradingMode.REAL 
-                  ? 'border-red-500/50 text-red-500 bg-red-500/5 hover:bg-red-500/10' 
-                  : 'border-blue-500/50 text-blue-400 bg-blue-500/5 hover:bg-blue-500/10'
-              } disabled:opacity-30`}
-            >
-              {state.config.mode === TradingMode.REAL ? 'LIVE EXCHANGE' : 'PAPER TRADING'}
-            </button>
-            <button 
-              onClick={toggleBot}
-              disabled={!isAuthenticated}
-              className={`w-full py-4 rounded-xl flex items-center justify-center gap-3 font-black text-sm tracking-wide transition-all shadow-xl ${
-                state.status === BotStatus.RUNNING 
-                  ? 'bg-red-600 hover:bg-red-700' 
-                  : 'bg-yellow-500 hover:bg-yellow-400 text-black'
-              } disabled:bg-gray-800 disabled:text-gray-500 disabled:shadow-none`}
-            >
-              {state.status === BotStatus.RUNNING ? <Square size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
-              <span className="hidden lg:inline">{state.status === BotStatus.RUNNING ? 'HALT ENGINE' : 'START ENGINE'}</span>
-            </button>
-          </div>
+        <div className="p-4 border-t border-[#1e2329] space-y-4">
+          <button 
+            disabled={state.status === BotStatus.RUNNING || !isAuthenticated}
+            onClick={() => state.config.mode === TradingMode.SIMULATION ? setShowWarning(true) : setState(prev => ({...prev, config: {...prev.config, mode: TradingMode.SIMULATION}}))}
+            className={`w-full py-2 rounded-lg text-[10px] font-black border transition-all ${
+              state.config.mode === TradingMode.REAL ? 'border-red-500 text-red-500' : 'border-blue-500 text-blue-400'
+            } disabled:opacity-30`}
+          >
+            {state.config.mode === TradingMode.REAL ? 'LIVE MODE' : 'PAPER MODE'}
+          </button>
+          <button 
+            onClick={toggleBot}
+            disabled={!isAuthenticated}
+            className={`w-full py-4 rounded-xl flex items-center justify-center gap-3 font-black text-sm transition-all ${
+              state.status === BotStatus.RUNNING ? 'bg-red-600' : 'bg-yellow-500 text-black'
+            } disabled:bg-gray-800 disabled:text-gray-600`}
+          >
+            {state.status === BotStatus.RUNNING ? <Square size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+            <span className="hidden lg:inline">{state.status === BotStatus.RUNNING ? 'STOP' : 'START'}</span>
+          </button>
         </div>
       </aside>
 
-      {/* Main Container */}
       <main className="flex-1 flex flex-col relative min-w-0 bg-[#080a0c]">
-        {/* Connection & Status Header */}
-        <header className="h-14 border-b border-[#1e2329] flex items-center justify-between px-6 bg-[#0b0e11]/80 backdrop-blur-md sticky top-0 z-10">
+        <header className="h-14 border-b border-[#1e2329] flex items-center justify-between px-6 bg-[#0b0e11]/80 backdrop-blur-md">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
               {state.connection === ConnectionStatus.CONNECTED ? (
                 <div className="flex items-center gap-2">
                   <Wifi size={16} className="text-green-500" />
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 bg-green-500/10 rounded-full">
-                    <UserCheck size={12} className="text-green-500" />
-                    <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">{state.accountName}</span>
-                  </div>
+                  <span className="text-[10px] font-black text-green-500 uppercase">{state.accountName}</span>
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
-                  <WifiOff size={16} className="text-gray-500" />
-                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">NOT CONNECTED</span>
-                </div>
+                <span className="text-[10px] font-black text-gray-500 uppercase">OFFLINE</span>
               )}
             </div>
-            <div className="h-4 w-px bg-[#1e2329]" />
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">CoinEx Mainnet</span>
-            </div>
           </div>
-
           <div className="flex items-center gap-4">
              {state.status === BotStatus.RUNNING && (
-               <button 
-                onClick={killSwitch}
-                className="flex items-center gap-2 px-3 py-1 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white rounded border border-red-500/20 transition-all text-[10px] font-black uppercase"
-               >
-                 <AlertOctagon size={14} />
-                 Kill Switch
-               </button>
+               <button onClick={killSwitch} className="px-3 py-1 bg-red-600/10 text-red-500 rounded border border-red-500/20 text-[10px] font-black uppercase">KILL SWITCH</button>
              )}
-             <div className="flex flex-col items-end">
-               <span className="text-[9px] text-gray-500 uppercase font-black">Net Equity</span>
-               <span className="text-sm font-bold text-white mono">${state.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+             <div className="text-right">
+               <div className="text-[9px] text-gray-500 font-black uppercase">Equity</div>
+               <div className="text-sm font-bold text-white mono">${state.balance.toLocaleString()}</div>
              </div>
           </div>
         </header>
 
         <div className="flex-1 overflow-y-auto">
           {!isAuthenticated ? (
-            <div className="h-full flex items-center justify-center p-6">
-              <ConnectionPanel 
-                onConnect={handleConnect} 
-                isConnecting={state.connection === ConnectionStatus.CONNECTING} 
-                error={state.connection === ConnectionStatus.AUTH_FAILED ? "Invalid credentials. HMAC handshake failed." : undefined}
-              />
-            </div>
+            <div className="h-full flex items-center justify-center"><ConnectionPanel onConnect={handleConnect} isConnecting={state.connection === ConnectionStatus.CONNECTING} error={state.connection === ConnectionStatus.AUTH_FAILED ? "Auth Failed" : undefined} /></div>
           ) : (
             <div className="p-4 lg:p-6 space-y-6">
               {activeTab === 'dashboard' && <Dashboard state={state} />}
@@ -337,38 +307,17 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
-
-        {/* Footer Log Console */}
-        <div className="h-40 border-t border-[#1e2329] bg-[#0b0e11]">
-          <LogConsole logs={state.logs} />
-        </div>
+        <div className="h-40 border-t border-[#1e2329] bg-[#0b0e11]"><LogConsole logs={state.logs} /></div>
       </main>
 
-      {showWarning && (
-        <RiskWarningModal 
-          onConfirm={() => {
-            setState(prev => ({ ...prev, config: { ...prev.config, mode: TradingMode.REAL } }));
-            setShowWarning(false);
-          }} 
-          onCancel={() => setShowWarning(false)} 
-        />
-      )}
+      {showWarning && <RiskWarningModal onConfirm={() => { setState(prev => ({ ...prev, config: { ...prev.config, mode: TradingMode.REAL } })); setShowWarning(false); }} onCancel={() => setShowWarning(false)} />}
     </div>
   );
 };
 
 const NavItem = ({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) => (
-  <button 
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${
-      active 
-        ? 'bg-yellow-500/10 text-yellow-500 shadow-[inset_0_0_10px_rgba(234,179,8,0.05)]' 
-        : 'text-gray-500 hover:text-gray-300 hover:bg-[#1e2329]/50'
-    }`}
-  >
-    {icon}
-    <span className="hidden lg:block font-bold text-sm tracking-tight">{label}</span>
-    {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.8)]" />}
+  <button onClick={onClick} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${active ? 'bg-yellow-500/10 text-yellow-500' : 'text-gray-500 hover:bg-[#1e2329]'}`}>
+    {icon}<span className="hidden lg:block font-bold text-sm">{label}</span>
   </button>
 );
 
