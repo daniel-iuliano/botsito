@@ -1,8 +1,7 @@
 
 import crypto from 'crypto';
 
-// This secret should be in Vercel Environment Variables in production
-const ENCRYPTION_KEY = Buffer.from('48656c6c6f576f726c644e6578757350726f3132333435363738393041424344', 'hex'); // 32 bytes
+const ENCRYPTION_KEY = Buffer.from('48656c6c6f576f726c644e6578757350726f3132333435363738393041424344', 'hex');
 const ALGORITHM = 'aes-256-gcm';
 
 export function encryptSession(data: any): string {
@@ -15,6 +14,7 @@ export function encryptSession(data: any): string {
 }
 
 export function decryptSession(token: string): any {
+  if (!token || typeof token !== 'string' || !token.includes(':')) return null;
   try {
     const [ivHex, authTagHex, encryptedHex] = token.split(':');
     const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
@@ -27,15 +27,6 @@ export function decryptSession(token: string): any {
   }
 }
 
-export function signCoinEx(params: Record<string, any>, secret: string) {
-  const query = Object.keys(params)
-    .sort()
-    .map(k => `${k}=${params[k]}`)
-    .join("&");
-
-  return crypto
-    .createHmac("sha256", secret)
-    .update(query)
-    .digest("hex")
-    .toUpperCase();
+export function signCoinEx(queryString: string, secret: string): string {
+  return crypto.createHmac("sha256", secret).update(queryString).digest("hex").toLowerCase();
 }

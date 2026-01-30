@@ -73,13 +73,13 @@ const App: React.FC = () => {
         }
       } catch (e) {
         api.clearToken();
+        setState(prev => ({ ...prev, connection: ConnectionStatus.UNAUTHENTICATED }));
       }
     };
     checkConn();
   }, [refreshBalances]);
 
   useEffect(() => {
-    // Engine Polling
     const interval = setInterval(async () => {
       try {
         const snapshot = await api.request('/api/market-snapshot');
@@ -100,7 +100,7 @@ const App: React.FC = () => {
 
   const handleConnect = async (key: string, secret: string) => {
     setState(prev => ({ ...prev, connection: ConnectionStatus.CONNECTING }));
-    addLog(`Establishing secure tunnel to CoinEx...`, "INFO");
+    addLog(`Initiating secure handshake with CoinEx...`, "INFO");
     
     try {
       const res = await api.request('/api/set-api-keys', {
@@ -114,7 +114,7 @@ const App: React.FC = () => {
         connection: ConnectionStatus.CONNECTED,
         accountName: res.username
       }));
-      addLog(`Secure tunnel established. Connected as ${res.username}.`, "INFO");
+      addLog(`Secure tunnel verified. Session active as ${res.username}.`, "INFO");
       refreshBalances();
     } catch (error: any) {
       setState(prev => ({ ...prev, connection: ConnectionStatus.AUTH_FAILED }));
@@ -131,14 +131,16 @@ const App: React.FC = () => {
           body: JSON.stringify({ config: state.config }) 
         });
         setState(prev => ({ ...prev, status: BotStatus.RUNNING }));
-        addLog("NEXUS Engine Engaged. Real-time alpha monitoring active.", "INFO");
+        addLog("NEXUS Engine Engaged. Active market monitoring started.", "INFO");
       } catch (e: any) {
-        addLog(`Engine Start Failed: ${e.message}`, "ERROR");
+        addLog(`Engine Engagement Failed: ${e.message}`, "ERROR");
       }
     } else {
-      await api.request('/api/stop-bot');
-      setState(prev => ({ ...prev, status: BotStatus.OFF }));
-      addLog("NEXUS Engine Disengaged. Monitoring mode only.", "INFO");
+      try {
+        await api.request('/api/stop-bot', { method: 'POST' });
+        setState(prev => ({ ...prev, status: BotStatus.OFF }));
+        addLog("NEXUS Engine Disengaged. Positions halted.", "INFO");
+      } catch (e) {}
     }
   };
 
@@ -149,7 +151,7 @@ const App: React.FC = () => {
           <div className="bg-yellow-500 p-2 rounded-xl"><Zap className="text-black w-6 h-6" /></div>
           <div className="hidden lg:block">
             <h1 className="font-black text-xl tracking-tighter">NEXUS<span className="text-yellow-500 italic">PRO</span></h1>
-            <span className="text-[10px] text-gray-500 font-black uppercase tracking-tight">Cloud Instance</span>
+            <span className="text-[10px] text-gray-500 font-black uppercase tracking-tight">Stateless Instance</span>
           </div>
         </div>
         <nav className="flex-1 p-3 space-y-2 mt-4">
@@ -197,7 +199,7 @@ const App: React.FC = () => {
             )}
           </div>
           <div className="flex items-center gap-6">
-            <button onClick={refreshBalances} className="text-[10px] text-gray-500 hover:text-white uppercase font-black transition-colors">Sync Balances</button>
+            <button onClick={refreshBalances} className="text-[10px] text-gray-500 hover:text-white uppercase font-black transition-colors">Sync</button>
             <div className="text-right">
               <div className="text-[9px] text-gray-500 font-black uppercase">Available USDT</div>
               <div className="text-sm font-bold text-white mono">${state.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
