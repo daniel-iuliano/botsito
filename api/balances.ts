@@ -12,11 +12,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const info = await coinexRequest('/v1/balance/info', {}, token);
-    
-    if (info.code !== 0) {
-      return res.status(400).json({ success: false, message: info.message });
-    }
-
     const balances = Object.keys(info.data).map(asset => ({
       asset,
       available: parseFloat(info.data[asset].available),
@@ -25,7 +20,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })).filter(b => b.total > 0);
 
     return res.status(200).json({ success: true, balances });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
   }
 }

@@ -64,7 +64,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const checkConn = async () => {
       try {
-        const res = await api.request('/api/connection-status');
+        const res = await api.request('/api/auth');
         if (res.connected) {
           setState(prev => ({ ...prev, connection: ConnectionStatus.CONNECTED, accountName: res.username }));
           refreshBalances();
@@ -82,7 +82,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const snapshot = await api.request('/api/market-snapshot');
+        const snapshot = await api.request('/api/market');
         setState(prev => ({
           ...prev,
           opportunities: snapshot.opportunities,
@@ -103,7 +103,7 @@ const App: React.FC = () => {
     addLog(`Initiating secure handshake with CoinEx...`, "INFO");
     
     try {
-      const res = await api.request('/api/set-api-keys', {
+      const res = await api.request('/api/auth', {
         method: 'POST',
         body: JSON.stringify({ apiKey: key, apiSecret: secret })
       });
@@ -126,9 +126,9 @@ const App: React.FC = () => {
     if (state.status === BotStatus.OFF) {
       if (state.connection !== ConnectionStatus.CONNECTED) return;
       try {
-        await api.request('/api/start-bot', { 
+        await api.request('/api/bot', { 
           method: 'POST', 
-          body: JSON.stringify({ config: state.config }) 
+          body: JSON.stringify({ action: 'START', config: state.config }) 
         });
         setState(prev => ({ ...prev, status: BotStatus.RUNNING }));
         addLog("NEXUS Engine Engaged. Active market monitoring started.", "INFO");
@@ -137,7 +137,10 @@ const App: React.FC = () => {
       }
     } else {
       try {
-        await api.request('/api/stop-bot', { method: 'POST' });
+        await api.request('/api/bot', { 
+          method: 'POST', 
+          body: JSON.stringify({ action: 'STOP' }) 
+        });
         setState(prev => ({ ...prev, status: BotStatus.OFF }));
         addLog("NEXUS Engine Disengaged. Positions halted.", "INFO");
       } catch (e) {}
