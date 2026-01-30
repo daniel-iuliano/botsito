@@ -1,4 +1,3 @@
-
 import axios from "axios";
 import { signCoinEx } from "./signer";
 import { getSession } from "./apiKeyMemory";
@@ -15,32 +14,41 @@ export async function privateRequest(
   const { apiKey, apiSecret } = getSession();
 
   const tonce = Date.now();
-  const fullParams = {
+
+  const fullParams: Record<string, any> = {
     ...params,
     access_id: apiKey,
     tonce
   };
 
+  // 🔑 GENERATE SIGNATURE
   const signature = signCoinEx(fullParams, apiSecret);
 
-  // Note: CoinEx API authentication headers and parameter placement 
-  // vary by version. Following the specific architecture requested.
+  // 🔑 ADD SIGNATURE TO PARAMS (Required by CoinEx V1)
+  fullParams.signature = signature;
+
   const res = await axios.get(`${BASE}${endpoint}`, {
-    params: { ...fullParams, authorization: signature },
+    params: fullParams,
     headers: {
-      "Authorization": apiKey,
-      "Content-Type": "application/json"
-    }
+      Authorization: apiKey
+    },
+    timeout: 10000
   });
 
   return res.data;
 }
 
+/**
+ * Fetches all available market pairs.
+ */
 export async function getAllMarkets() {
   const resp = await axios.get(`${BASE}/market/list`);
   return resp.data.data || [];
 }
 
+/**
+ * Fetches real-time ticker data for a specific market.
+ */
 export async function getTicker(market: string) {
   const resp = await axios.get(`${BASE}/market/ticker`, {
     params: { market }
