@@ -16,7 +16,8 @@
     "axios": "^1.7.9",
     "express": "^4.21.2",
     "cors": "^2.8.5",
-    "crypto": "^1.0.1"
+    "crypto": "^1.0.1",
+    "@vercel/node": "^5.5.28"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

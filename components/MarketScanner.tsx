@@ -54,7 +54,8 @@ const MarketScanner: React.FC<{ opportunities: MarketOpportunity[] }> = ({ oppor
               </div>
               <div className="flex gap-1">
                 {opp.score > 80 && <Zap size={14} className="text-yellow-500 fill-yellow-500 animate-pulse" />}
-                {opp.spread > 0.05 && <AlertTriangle size={14} className="text-orange-500" title="High Spread" />}
+                {/* Fix: Remove unsupported 'title' attribute from AlertTriangle component */}
+                {opp.spread > 0.05 && <AlertTriangle size={14} className="text-orange-500" />}
               </div>
             </div>
           </div>
