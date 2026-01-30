@@ -1,21 +1,14 @@
 
-export const config = {
-  runtime: "nodejs"
-};
+export const runtime = "nodejs";
 
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getMarketTickers } from './lib/coinex.js';
+import { NextResponse } from 'next/server';
+import { getMarketTickers } from '@/lib/coinex';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Content-Type', 'application/json');
-
+export async function GET() {
   try {
     const tickers = await getMarketTickers();
-    if (!tickers || Object.keys(tickers).length === 0) {
-      return res.status(200).json({ opportunities: [] });
-    }
-
     const marketList = Object.keys(tickers);
+    
     const opportunities = marketList
       .map(symbol => {
         const t = tickers[symbol];
@@ -28,13 +21,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const volUSD = (parseFloat(t.vol) || 0) * last;
         const spread = last > 0 ? ((sell - buy) / last) * 100 : 0;
         
-        // Advanced Quant Logic
         const rsi = 30 + (Math.random() * 40); 
         let score = 50;
-        if (rsi < 35) score += 30; // Oversold priority
-        if (spread < 0.05) score += 20; // High liquidity priority
+        if (rsi < 35) score += 30;
+        if (spread < 0.05) score += 20;
         if (volUSD > 1000000) score += 10;
-        if (spread > 0.15) score -= 40; // Penalty for wide spreads
+        if (spread > 0.15) score -= 40;
 
         return {
           symbol,
@@ -58,9 +50,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .sort((a, b) => b.score - a.score)
       .slice(0, 15);
 
-    return res.status(200).json({ opportunities });
-  } catch (error: any) {
-    console.error("[Market Snapshot Error]", error);
-    return res.status(500).json({ opportunities: [], error: error.message });
+    return NextResponse.json({ opportunities });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

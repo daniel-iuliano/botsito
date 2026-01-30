@@ -17,6 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const tempToken = encryptSession({ apiKey, apiSecret });
+    // Verify credentials by fetching account info
     const info = await coinexRequest('/v1/account/info', {}, tempToken);
     
     const username = info.data?.user || `User_${apiKey.slice(0, 4)}`;
@@ -28,6 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       token: finalToken
     });
   } catch (error: any) {
+    console.error("[Auth Error]", error);
     return res.status(401).json({ 
       success: false, 
       message: error.message || "Invalid CoinEx API keys or signing error" 

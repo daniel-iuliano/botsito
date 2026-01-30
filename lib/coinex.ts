@@ -1,13 +1,9 @@
 
 import axios from 'axios';
-import { signCoinEx, decryptSession } from './crypto.js';
+import { decryptSession, signCoinEx } from './crypto';
 
 const BASE_URL = 'https://api.coinex.com';
 
-/**
- * Executes a signed or unsigned request to CoinEx.
- * Uses a stateless session token for authentication.
- */
 export async function coinexRequest(path: string, params: Record<string, any> = {}, sessionToken?: string) {
   let finalParams = { ...params };
   let headers: Record<string, string> = {
@@ -17,7 +13,7 @@ export async function coinexRequest(path: string, params: Record<string, any> = 
 
   if (sessionToken) {
     const credentials = decryptSession(sessionToken);
-    if (!credentials) throw new Error('Session invalid. Please reconnect.');
+    if (!credentials) throw new Error('Session invalid');
     
     const timestamp = Date.now();
     const queryObj = { ...params, access_id: credentials.apiKey, tonce: timestamp };
@@ -28,26 +24,21 @@ export async function coinexRequest(path: string, params: Record<string, any> = 
       .join('&');
     
     const signature = signCoinEx(sortedQuery, credentials.apiSecret);
-    
     finalParams = { ...queryObj, signature };
     headers['Authorization'] = credentials.apiKey;
   }
 
-  try {
-    const res = await axios.get(`${BASE_URL}${path}`, {
-      params: finalParams,
-      headers,
-      timeout: 10000
-    });
-    
-    if (res.data && res.data.code !== 0 && res.data.code !== undefined) {
-      throw new Error(res.data.message || `Exchange Error: ${res.data.code}`);
-    }
-    
-    return res.data;
-  } catch (error: any) {
-    throw new Error(error.response?.data?.message || error.message || 'Exchange API Error');
+  const res = await axios.get(`${BASE_URL}${path}`, {
+    params: finalParams,
+    headers,
+    timeout: 10000
+  });
+  
+  if (res.data && res.data.code !== 0 && res.data.code !== undefined) {
+    throw new Error(res.data.message || `Exchange Error: ${res.data.code}`);
   }
+  
+  return res.data;
 }
 
 export async function getMarketTickers() {
