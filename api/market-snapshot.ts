@@ -1,7 +1,12 @@
 
+export const config = {
+  runtime: "nodejs"
+};
+
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getMarketTickers } from './lib/coinex.js';
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
 
   try {

@@ -1,19 +1,22 @@
 
+export const config = {
+  runtime: "nodejs"
+};
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { coinexRequest } from './lib/coinex';
+import { coinexRequest } from './lib/coinex.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const token = req.headers.authorization;
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
-    const info = await coinexRequest('/balance/info', {}, token);
+    const info = await coinexRequest('/v1/balance/info', {}, token);
     
     if (info.code !== 0) {
       return res.status(400).json({ success: false, message: info.message });
     }
 
-    // Transform into a frontend-friendly balance object
     const balances = Object.keys(info.data).map(asset => ({
       asset,
       available: parseFloat(info.data[asset].available),

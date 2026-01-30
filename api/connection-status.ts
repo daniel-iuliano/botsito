@@ -1,7 +1,12 @@
 
+export const config = {
+  runtime: "nodejs"
+};
+
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { decryptSession } from './lib/crypto.js';
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
   const token = req.headers.authorization;
   

@@ -1,7 +1,11 @@
 
+export const config = {
+  runtime: "nodejs"
+};
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { coinexRequest } from './lib/coinex';
-import { encryptSession } from './lib/crypto';
+import { coinexRequest } from './lib/coinex.js';
+import { encryptSession } from './lib/crypto.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
@@ -12,16 +16,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // 1. Create a temporary token to test the connection
     const tempToken = encryptSession({ apiKey, apiSecret });
-    
-    // 2. Validate by fetching account info
     const info = await coinexRequest('/v1/account/info', {}, tempToken);
     
-    // 3. Extract user info
     const username = info.data?.user || `User_${apiKey.slice(0, 4)}`;
-
-    // 4. Issue the final stateless session token containing the keys and username
     const finalToken = encryptSession({ apiKey, apiSecret, username });
 
     return res.status(200).json({
