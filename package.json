@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently \"vite\" \"tsx server.ts\"",
+    "dev:client": "vite",
+    "dev:server": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -23,7 +25,9 @@
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^8.2.2",
     "typescript": "~5.8.2",
+    "tsx": "^4.19.4",
     "vite": "^6.2.0"
   }
 }

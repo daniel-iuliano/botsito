@@ -134,6 +134,17 @@ export async function stopBot(req: any, res: any) {
   return res.json({ success: true, status: 'OFF', endTime: Date.now() });
 }
 
+export async function botAction(req: any, res: any) {
+  const { action } = req.body || {};
+  if (action === "START") {
+    return startBot(req, res);
+  }
+  if (action === "STOP") {
+    return stopBot(req, res);
+  }
+  return res.status(400).json({ error: "Invalid bot action" });
+}
+
 export async function handleTestConnection(req: any, res: any) {
   const token = req.headers.authorization;
   try {
