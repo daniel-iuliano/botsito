@@ -18,3 +18,6 @@ View your app in AI Studio: https://ai.studio/apps/drive/1dSD2Z_Ax4THlOgJp2fGosA
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+> `npm run dev` launches the Vite frontend and the Express API on port 4000.
+> If you prefer separate terminals, use `npm run dev:client` and `npm run dev:server`.
